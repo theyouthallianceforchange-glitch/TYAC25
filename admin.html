@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>TYAC | Secure Admin Portal</title>
+<link rel="stylesheet" href="style.css?v=6">
+<style>
+.admin-shell{max-width:1240px;margin:0 auto;padding:3rem 1.25rem 5rem}
+.admin-top{display:flex;justify-content:space-between;align-items:center;gap:1rem;margin-bottom:2rem}
+.admin-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem}
+.admin-card{background:var(--white);border:1px solid var(--line-strong);padding:1.25rem;overflow:auto}
+.admin-card h2{font-size:1.2rem;margin-bottom:1rem}
+.admin-table{width:100%;border-collapse:collapse;font-size:.72rem}
+.admin-table th,.admin-table td{padding:.65rem;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+.admin-table th{color:var(--oak);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase}
+.auth-card{max-width:520px;margin:8vh auto}
+.admin-status{margin:.75rem 0;min-height:1.2em;font-size:.75rem}
+@media(max-width:900px){.admin-grid{grid-template-columns:1fr}.admin-top{align-items:flex-start;flex-direction:column}}
+</style>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap header-flex">
+    <a class="brand" href="index.html">
+      <span class="brand__plate"><img src="yac.jpg" alt="TYAC crest" class="brand__mark"></span>
+      <span class="brand__text"><span class="brand__name">TYAC Secure Portal</span><span class="brand__meta">Administrator access</span></span>
+    </a>
+    <a href="index.html" class="btn btn--ghost">Public Site</a>
+  </div>
+</header>
+
+<main class="admin-shell">
+  <section id="login-view" class="admin-card auth-card">
+    <p class="eyebrow"><span class="eyebrow__index">AUTH</span> Restricted Area</p>
+    <h1>Administrator Login</h1>
+    <p class="section-sub">Use the administrator account configured on the server.</p>
+    <form id="login-form" class="styled-form" style="margin-top:2rem">
+      <div class="form-group"><label for="login-email">Email</label><input id="login-email" type="email" required autocomplete="username"></div>
+      <div class="form-group"><label for="login-password">Password</label><input id="login-password" type="password" required autocomplete="current-password"></div>
+      <button class="btn btn--primary btn-block">Sign In</button>
+      <p id="login-status" class="admin-status" role="status"></p>
+    </form>
+  </section>
+
+  <section id="dashboard-view" hidden>
+    <div class="admin-top">
+      <div>
+        <p class="eyebrow"><span class="eyebrow__index">DASHBOARD</span> TYAC Registry</p>
+        <h1>Secure Administration</h1>
+        <p id="admin-identity" class="section-sub"></p>
+      </div>
+      <button id="logout-btn" class="btn btn--secondary">Sign Out</button>
+    </div>
+    <div class="admin-grid">
+      <div class="admin-card">
+        <h2>Membership Applications</h2>
+        <table class="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Interest</th><th>Status</th></tr></thead><tbody id="members-body"></tbody></table>
+      </div>
+      <div class="admin-card">
+        <h2>Contact Messages</h2>
+        <table class="admin-table"><thead><tr><th>From</th><th>Subject</th><th>Message</th><th>Status</th></tr></thead><tbody id="messages-body"></tbody></table>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+let csrfToken="";
+const $=s=>document.querySelector(s);
+async function api(url, options={}) {
+  options.credentials="same-origin";
+  options.headers={"Content-Type":"application/json","X-CSRF-Token":csrfToken,...(options.headers||{})};
+  const r=await fetch(url,options); const data=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.message||"Request failed"); return data;
+}
+async function getCsrf(){ const r=await fetch("/api/csrf",{credentials:"same-origin"}); if(!r.ok) throw new Error("Session expired"); csrfToken=(await r.json()).token; }
+function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));}
+async function loadDashboard(){
+  await getCsrf();
+  const [members,messages]=await Promise.all([api("/api/admin/members"),api("/api/admin/messages")]);
+  $("#members-body").innerHTML=members.members.map(m=>`<tr><td>${esc(m.full_name)}</td><td>${esc(m.email)}</td><td>${esc(m.interest)}</td><td>${esc(m.status)}</td></tr>`).join("")||"<tr><td colspan=4>No applications yet.</td></tr>";
+  $("#messages-body").innerHTML=messages.messages.map(m=>`<tr><td>${esc(m.full_name)}<br>${esc(m.email)}</td><td>${esc(m.subject)}</td><td>${esc(m.message)}</td><td>${esc(m.status)}</td></tr>`).join("")||"<tr><td colspan=4>No messages yet.</td></tr>";
+}
+async function init(){
+  const me=await fetch("/api/auth/me",{credentials:"same-origin"}).then(r=>r.json());
+  if(me.authenticated){$("#login-view").hidden=true;$("#dashboard-view").hidden=false;$("#admin-identity").textContent=`Signed in as ${me.email} · ${me.role}`;try{await loadDashboard()}catch(e){alert(e.message)}}
+}
+$("#login-form").addEventListener("submit",async e=>{
+  e.preventDefault();$("#login-status").textContent="Signing in...";
+  try{
+    const r=await fetch("/api/auth/login",{method:"POST",headers:{"Content-Type":"application/json"},credentials:"same-origin",body:JSON.stringify({email:$("#login-email").value,password:$("#login-password").value})});
+    const d=await r.json();if(!r.ok)throw new Error(d.message||"Login failed");
+    $("#login-view").hidden=true;$("#dashboard-view").hidden=false;$("#admin-identity").textContent=`Signed in as ${d.email} · ${d.role}`;await loadDashboard();
+  }catch(e){$("#login-status").textContent=e.message}
+});
+$("#logout-btn").addEventListener("click",async()=>{try{await api("/api/auth/logout",{method:"POST"});location.reload()}catch(e){alert(e.message)}});
+init();
+</script>
+</body>
+</html>
